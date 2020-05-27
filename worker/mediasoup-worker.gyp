@@ -320,6 +320,23 @@
       [
         # C++ source files.
         'src/main.cpp'
+      ],
+      'conditions':
+      [
+        ['OS == "linux"', {
+          'cflags': [
+            '<!@(pkg-config --cflags gstreamer-1.0)',
+            '<!@(pkg-config --cflags gstreamer-app-1.0)'
+          ],
+          'ldflags': [
+            '<!@(pkg-config --libs-only-L --libs-only-other gstreamer-1.0)',
+            '<!@(pkg-config --libs-only-L --libs-only-other gstreamer-app-1.0)'
+          ],
+          'libraries': [
+            '<!@(pkg-config --libs-only-l gstreamer-1.0)',
+            '<!@(pkg-config --libs-only-l gstreamer-app-1.0)'
+          ]
+        }]
       ]
     },
     {

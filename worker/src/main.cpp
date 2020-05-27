@@ -20,6 +20,7 @@
 #include <cerrno>
 #include <csignal>  // sigaction()
 #include <cstdlib>  // std::_Exit(), std::genenv()
+#include <gst/gst.h>
 #include <iostream> // std::cerr, std::endl
 #include <map>
 #include <string>
@@ -99,6 +100,9 @@ int main(int argc, char* argv[])
 
 	Settings::PrintConfiguration();
 	DepLibUV::PrintVersion();
+
+	// Initialize GStreamer
+	gst_init (&argc, &argv);
 
 	try
 	{

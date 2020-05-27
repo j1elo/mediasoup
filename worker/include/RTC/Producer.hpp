@@ -12,6 +12,7 @@
 #include "RTC/RtpHeaderExtensionIds.hpp"
 #include "RTC/RtpPacket.hpp"
 #include "RTC/RtpStreamRecv.hpp"
+#include <gst/gst.h>
 #include <json.hpp>
 #include <map>
 #include <string>
@@ -69,6 +70,7 @@ namespace RTC
 		{
 			DISCARDED = 0,
 			MEDIA     = 1,
+			GSTREAMER = 2,
 			RETRANSMISSION
 		};
 
@@ -127,6 +129,8 @@ namespace RTC
 		void NotifyNewRtpStream(RTC::RtpStreamRecv* rtpStream);
 		void PreProcessRtpPacket(RTC::RtpPacket* packet);
 		bool MangleRtpPacket(RTC::RtpPacket* packet, RTC::RtpStreamRecv* rtpStream) const;
+		void GstreamerRtpPacketPush(RTC::RtpPacket* packet);
+		RTC::RtpPacket* GstreamerRtpPacketPull(RTC::RtpPacket* packet);
 		void PostProcessRtpPacket(RTC::RtpPacket* packet);
 		void EmitScore() const;
 		void EmitTraceEventRtpAndKeyFrameTypes(RTC::RtpPacket* packet, bool isRtx = false) const;
@@ -174,6 +178,12 @@ namespace RTC
 		bool videoOrientationDetected{ false };
 		struct VideoOrientation videoOrientation;
 		struct TraceEventTypes traceEventTypes;
+
+		// GStreamer
+		GstElement *pipeline;
+		GstElement *video_source;
+		GstElement *video_filter;
+		GstElement *video_sink;
 	};
 } // namespace RTC
 

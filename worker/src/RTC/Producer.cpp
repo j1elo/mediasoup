@@ -12,6 +12,8 @@
 #include "RTC/RTCP/FeedbackRtp.hpp"
 #include "RTC/RTCP/XrReceiverReferenceTime.hpp"
 #include <cstring>  // std::memcpy()
+#include <gst/app/app.h>
+#include <gst/gst.h>
 #include <iterator> // std::ostream_iterator
 #include <sstream>  // std::ostringstream
 
@@ -274,6 +276,40 @@ namespace RTC
 
 			this->keyFrameRequestManager = new RTC::KeyFrameRequestManager(this, keyFrameRequestDelay);
 		}
+
+		/*
+		 * GStreamer pipeline setup
+		 * ========================
+		 */
+
+		this->pipeline = gst_pipeline_new ("mediasoup-producer");
+		this->video_source = gst_element_factory_make ("appsrc", "video_source");
+		// this->video_filter = gst_element_factory_make ("videobalance", "video_filter");
+		this->video_filter = gst_element_factory_make ("identity", "video_filter");
+		this->video_sink = gst_element_factory_make ("appsink", "video_sink");
+
+		if (!pipeline || !video_source || !video_sink || !video_filter)
+		{
+			GST_ERROR ("[gst] ERROR: Not all elements could be created\n");
+		}
+
+		// Add all elements to the pipeline
+		gst_bin_add_many(GST_BIN(pipeline), video_source, video_sink, video_filter, NULL);
+
+		// Link elements together
+		gst_element_link(video_source, video_filter);
+		gst_element_link(video_filter, video_sink);
+
+		// Configure element properties
+		// g_object_set (this->video_filter, "saturation", 0.0, NULL);
+		g_object_set (this->video_sink, "emit-signals", TRUE, NULL);
+
+		// Connect to GstAppSink signal(s)
+		// g_signal_connect (demux, "new-sample", G_CALLBACK (on_demux_pad_added),
+        //             &demux_sinks);
+
+		// Set PLAYING state to pipeline and all its elements
+		gst_element_set_state(pipeline, GST_STATE_PLAYING);
 	}
 
 	Producer::~Producer()
@@ -664,12 +700,20 @@ namespace RTC
 		if (!MangleRtpPacket(packet, rtpStream))
 			return ReceiveRtpPacketResult::DISCARDED;
 
-		// Post-process the packet.
-		PostProcessRtpPacket(packet);
+		// Push/Pull packets into GStreamer.
+		GstreamerRtpPacketPush(packet);
+		packet = GstreamerRtpPacketPull(packet);
+		if (packet) {
+			// Post-process the packet.
+			PostProcessRtpPacket(packet);
 
-		this->listener->OnProducerRtpPacketReceived(this, packet);
+			this->listener->OnProducerRtpPacketReceived(this, packet);
 
-		return result;
+			return result;
+		}
+		else {
+			return ReceiveRtpPacketResult::GSTREAMER;
+		}
 	}
 
 	void Producer::ReceiveRtcpSenderReport(RTC::RTCP::SenderReport* report)
@@ -1326,6 +1370,75 @@ namespace RTC
 		}
 
 		return true;
+	}
+
+	void Producer::GstreamerRtpPacketPush(RTC::RtpPacket* packet)
+	{
+		GstBuffer* buffer = gst_buffer_new_wrapped_full(
+			GST_MEMORY_FLAG_READONLY,
+			packet->GetPayload(),
+			packet->GetPayloadLength() + packet->GetPayloadPadding(),
+			0,
+			packet->GetPayloadLength(),
+			NULL,
+			NULL);
+
+		GstAppSrc *appsrc = GST_APP_SRC_CAST(this->video_source);
+		GstCaps *appsrc_caps = gst_app_src_get_caps(appsrc);
+		// GST_WARNING ("appsrc caps: %" GST_PTR_FORMAT, appsrc_caps);
+
+		// If caps are not set
+		if (!appsrc_caps) {
+			GstSample* sample = gst_sample_new(
+				buffer,
+				NULL,
+				NULL,
+				NULL);
+
+			GstFlowReturn ret = gst_app_src_push_buffer(appsrc, buffer);
+
+			gst_sample_unref(sample);
+
+			if (ret != GST_FLOW_OK) {
+				GST_ERROR ("appsrc push failed");
+			}
+		}
+		else {
+			GstFlowReturn ret = gst_app_src_push_buffer (appsrc, buffer);
+
+			if (ret != GST_FLOW_OK) {
+				GST_ERROR ("appsrc push failed");
+			}
+		}
+	}
+
+	RTC::RtpPacket* Producer::GstreamerRtpPacketPull(RTC::RtpPacket* packet)
+	{
+		GstAppSink *appsink = GST_APP_SINK_CAST(this->video_sink);
+
+		GstSample *sample = gst_app_sink_try_pull_sample (appsink, 0);
+		GstBuffer *buffer = NULL;
+
+		if (sample) {
+			GST_INFO ("Got sample! %" GST_PTR_FORMAT, sample);
+			buffer = gst_sample_get_buffer (sample);
+		}
+
+		if (buffer) {
+			void *dest_mem = packet->GetPayload();
+			size_t dest_size = packet->GetPayloadLength() + packet->GetPayloadPadding();
+			size_t dup_size = 0;
+			gst_buffer_extract_dup (
+				buffer,
+				0,
+				dest_size,
+				&dest_mem,
+				&dup_size);
+
+			return packet;
+		}
+
+		return nullptr;
 	}
 
 	inline void Producer::PostProcessRtpPacket(RTC::RtpPacket* packet)

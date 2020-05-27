@@ -250,7 +250,8 @@ export class Worker extends EnhancedEventEmitter
 			{
 				env :
 				{
-					MEDIASOUP_VERSION : '__MEDIASOUP_VERSION__'
+					MEDIASOUP_VERSION : '__MEDIASOUP_VERSION__',
+					...process.env
 				},
 
 				detached : false,
